@@ -22,6 +22,13 @@ import random
 import shutil
 from pathlib import Path
 
+def is_driver_active(driver):
+    try:
+        driver.current_url
+        return True
+    except:
+        return False
+
 def acessar_pagina(url):
     """
     Acessa uma página web usando Selenium com Chrome
@@ -86,25 +93,36 @@ def acessar_pagina(url):
             driver_dir = os.path.dirname(driver_path)
             
             # Se o caminho retornado contém "THIRD_PARTY" ou não é executável, procurar o correto
-            if "THIRD_PARTY" in driver_path or not driver_path.endswith("chromedriver") or driver_path.endswith(".chromedriver"):
-                # Procurar pelo arquivo chromedriver no diretório (sem extensão)
-                chromedriver_executable = os.path.join(driver_dir, "chromedriver")
+            is_windows = os.name == 'nt'
+            chromedriver_name = "chromedriver.exe" if is_windows else "chromedriver"
+            
+            if "THIRD_PARTY" in driver_path or not driver_path.endswith(chromedriver_name) or driver_path.endswith(".chromedriver"):
+                # Procurar pelo arquivo chromedriver no diretório
+                chromedriver_executable = os.path.join(driver_dir, chromedriver_name)
                 if os.path.isfile(chromedriver_executable):
                     driver_path = chromedriver_executable
                 else:
-                    # Procurar recursivamente no diretório
-                    for root, dirs, files in os.walk(driver_dir):
+                    # Procurar recursivamente no diretório pai (webdriver-manager pode colocar em subdiretório)
+                    parent_dir = os.path.dirname(driver_dir) if "THIRD_PARTY" in driver_path else driver_dir
+                    found = False
+                    for root, dirs, files in os.walk(parent_dir):
                         for file in files:
-                            if file == "chromedriver" and not file.endswith(".chromedriver"):
+                            if file == chromedriver_name:
                                 full_path = os.path.join(root, file)
                                 if os.path.isfile(full_path):
                                     driver_path = full_path
+                                    found = True
                                     break
+                        if found:
+                            break
             
-            # Garantir que o arquivo é executável
-            if os.path.isfile(driver_path):
+            # Garantir que o arquivo existe e é executável
+            if not os.path.isfile(driver_path):
+                raise FileNotFoundError(f"ChromeDriver não encontrado em: {driver_path}")
+            
+            if not is_windows:
                 os.chmod(driver_path, 0o755)
-                print(f"ChromeDriver configurado: {driver_path}")
+            print(f"ChromeDriver configurado: {driver_path}")
             
         except AttributeError as e:
             if "'NoneType' object has no attribute 'split'" in str(e):
@@ -131,26 +149,25 @@ def acessar_pagina(url):
     # Criar instância do navegador
     # Usar undetected-chromedriver se disponível (melhor para evitar detecção)
     if UC_AVAILABLE:
-        print("Usando undetected-chromedriver para evitar detecção do Cloudflare...")
-        # undetected-chromedriver gerencia o ChromeDriver automaticamente
-        # Criar opções mais simples para undetected-chromedriver
-        uc_options = Options()
+        print("Configurando ambiente para VPS (Perfil persistente local)...")
+        
+        uc_options = uc.ChromeOptions()
+        
+        # Criar um perfil fixo NA VPS para acumular "reputação" e cookies
+        profile_path = os.path.abspath(os.path.join(os.getcwd(), "bot_profile"))
+        os.makedirs(profile_path, exist_ok=True)
+        
+        uc_options.add_argument(f'--user-data-dir={profile_path}')
         uc_options.add_argument("--no-sandbox")
         uc_options.add_argument("--disable-dev-shm-usage")
-        uc_options.add_argument("--disable-gpu")
+        uc_options.add_argument("--window-size=1920,1080")
         
-        # Configurar diretórios de download também para undetected-chromedriver (usar caminho absoluto)
+        # Não desabilitamos a GPU pois o Cloudflare checa isso para detectar bots
+        
+        # Configurar diretórios de download
         download_dir = os.path.abspath(os.path.join(os.getcwd(), "downloads"))
-        download_clientes_dir = os.path.abspath(os.path.join(download_dir, "clientes"))
-        download_sales_dir = os.path.abspath(os.path.join(download_dir, "sales"))
-        
         os.makedirs(download_dir, exist_ok=True)
-        os.makedirs(download_clientes_dir, exist_ok=True)
-        os.makedirs(download_sales_dir, exist_ok=True)
         
-        print(f"Diretório de download configurado: {download_dir}")
-        print(f"  - Clientes: {download_clientes_dir}")
-        print(f"  - Sales: {download_sales_dir}")
         prefs = {
             "download.default_directory": download_dir,
             "download.prompt_for_download": False,
@@ -160,7 +177,8 @@ def acessar_pagina(url):
         }
         uc_options.add_experimental_option("prefs", prefs)
         
-        driver = uc.Chrome(options=uc_options, version_main=None, use_subprocess=True)
+        # O version_main=144 garante compatibilidade com sua versão do Chrome
+        driver = uc.Chrome(options=uc_options, version_main=144, use_subprocess=True)
     else:
         # Criar o serviço do ChromeDriver
         service = Service(driver_path)
@@ -243,21 +261,44 @@ def acessar_pagina(url):
         # Verificar se há iframe do Turnstile
         turnstile_iframe_selectors = [
             "iframe[src*='challenges.cloudflare.com']",
+            "iframe[src*='turnstile']",
             "iframe[title*='challenge']",
             "iframe[title*='Cloudflare']",
             "iframe[id*='cf-chl']",
+            "iframe[data-sitekey]",
+            "iframe[class*='cf-']",
+            "iframe[class*='turnstile']",
         ]
         
         turnstile_found = False
+        turnstile_iframe = None
         for iframe_selector in turnstile_iframe_selectors:
             try:
                 iframes = driver.find_elements(By.CSS_SELECTOR, iframe_selector)
                 if iframes:
                     print(f"iframe do Cloudflare Turnstile encontrado: {iframe_selector}")
                     turnstile_found = True
+                    turnstile_iframe = iframes[0]
                     break
             except:
                 continue
+        
+        # Se não encontrou com seletores específicos, procurar todos os iframes
+        if not turnstile_found:
+            try:
+                all_iframes = driver.find_elements(By.TAG_NAME, "iframe")
+                for iframe in all_iframes:
+                    try:
+                        src = iframe.get_attribute("src") or ""
+                        if "cloudflare" in src.lower() or "turnstile" in src.lower() or "challenge" in src.lower():
+                            print(f"iframe do Cloudflare encontrado por src: {src}")
+                            turnstile_found = True
+                            turnstile_iframe = iframe
+                            break
+                    except:
+                        continue
+            except:
+                pass
         
         # Procurar também por checkbox fora do iframe (alguns casos)
         cloudflare_checkbox_selectors = [
@@ -268,10 +309,35 @@ def acessar_pagina(url):
         ]
         
         # Loop principal de espera
+        loop_count = 0
         while time.time() - start_wait < max_wait_time:
+            loop_count += 1
+            # Verificar se o driver ainda está ativo
+            if not is_driver_active(driver):
+                print("❌ ERRO: Navegador foi fechado durante a espera do Cloudflare!")
+                raise Exception("Sessão do navegador foi perdida")
+            
             # Verificar se o título mudou (Cloudflare passou)
-            current_title = driver.title
-            current_url = driver.current_url
+            try:
+                current_title = driver.title
+                current_url = driver.current_url
+            except Exception as e:
+                print(f"❌ ERRO: Não foi possível acessar informações da página: {e}")
+                raise
+            
+            # Re-procurar o iframe do Turnstile a cada 5 iterações (caso apareça depois)
+            if loop_count % 5 == 0 and not turnstile_found:
+                print("Re-procurando iframe do Turnstile...")
+                for iframe_selector in turnstile_iframe_selectors:
+                    try:
+                        iframes = driver.find_elements(By.CSS_SELECTOR, iframe_selector)
+                        if iframes:
+                            print(f"iframe do Cloudflare Turnstile encontrado agora: {iframe_selector}")
+                            turnstile_found = True
+                            turnstile_iframe = iframes[0]
+                            break
+                    except:
+                        continue
             
             # Verificar múltiplas condições para saber se passou
             title_changed = current_title != "Just a moment..." and "moment" not in current_title.lower()
@@ -309,50 +375,90 @@ def acessar_pagina(url):
                     except:
                         continue
             
-            # Se encontrou o Turnstile, tentar clicar no checkbox
-            if turnstile_found:
+            # Se encontrou o Turnstile, tentar interagir com ele
+            if turnstile_found and turnstile_iframe:
                 try:
+                    # Mover o mouse sobre o iframe do Turnstile para simular interação humana
+                    try:
+                        print("Movendo mouse sobre o iframe do Turnstile...")
+                        actions.move_to_element(turnstile_iframe).pause(0.5).perform()
+                        time.sleep(1)
+                    except:
+                        pass
+                    
+                    # Tentar clicar no iframe do Turnstile (alguns casos o clique no iframe funciona)
+                    try:
+                        print("Clicando no iframe do Turnstile...")
+                        actions.move_to_element(turnstile_iframe).pause(0.3).click().pause(0.5).perform()
+                        time.sleep(2)
+                    except:
+                        pass
+                    
                     # Procurar pelo checkbox do Cloudflare dentro do iframe
-                    for iframe_selector in turnstile_iframe_selectors:
-                        iframes = driver.find_elements(By.CSS_SELECTOR, iframe_selector)
-                        if iframes:
+                    try:
+                        driver.switch_to.frame(turnstile_iframe)
+                        
+                        # Seletores mais específicos do Turnstile
+                        checkbox_selectors = [
+                            "input[type='checkbox']",
+                            ".cb-lb",
+                            "#challenge-form input[type='checkbox']",
+                            "label[for*='challenge']",
+                            "label[for*='cb']",
+                            ".mark",
+                            "[role='checkbox']",
+                            "div[class*='checkbox']",
+                            "span[class*='checkbox']",
+                        ]
+                        
+                        checkbox_found = False
+                        for cb_selector in checkbox_selectors:
                             try:
-                                # Entrar no iframe
-                                driver.switch_to.frame(iframes[0])
-                                # Procurar checkbox dentro do iframe
-                                checkbox_selectors = [
-                                    "input[type='checkbox']",
-                                    ".cb-lb",
-                                    "#challenge-form input[type='checkbox']",
-                                    "label[for*='challenge']",
-                                ]
-                                
-                                for cb_selector in checkbox_selectors:
+                                checkbox = driver.find_elements(By.CSS_SELECTOR, cb_selector)
+                                if checkbox:
+                                    print(f"Checkbox do Cloudflare encontrado dentro do iframe! Clicando...")
+                                    # Mover mouse até o checkbox e clicar
+                                    actions.move_to_element(checkbox[0]).pause(0.3).click().pause(0.5).perform()
+                                    print("Clicou no checkbox do Cloudflare!")
+                                    checkbox_found = True
+                                    time.sleep(2)
+                                    break
+                            except:
+                                continue
+                        
+                        # Se não encontrou checkbox, tentar clicar em qualquer elemento clicável
+                        if not checkbox_found:
+                            try:
+                                clickable_elements = driver.find_elements(By.CSS_SELECTOR, "div, span, label, button")
+                                for elem in clickable_elements[:5]:
                                     try:
-                                        checkbox = driver.find_elements(By.CSS_SELECTOR, cb_selector)
-                                        if checkbox:
-                                            print(f"Checkbox do Cloudflare encontrado! Clicando...")
-                                            # Mover mouse até o checkbox e clicar
-                                            actions.move_to_element(checkbox[0]).pause(0.5).click().perform()
-                                            print("Clicou no checkbox do Cloudflare!")
-                                            time.sleep(1)
+                                        if elem.is_displayed() and elem.is_enabled():
+                                            print("Clicando em elemento clicável do Turnstile...")
+                                            actions.move_to_element(elem).pause(0.3).click().pause(0.5).perform()
+                                            time.sleep(2)
                                             break
                                     except:
                                         continue
-                                
-                                driver.switch_to.default_content()
-                                
-                                # Aguardar um pouco após clicar
-                                time.sleep(2)
-                                
-                                # Verificar se passou após o clique
-                                if driver.title != "Just a moment..." and "moment" not in driver.title.lower():
-                                    print("Cloudflare passou após clicar no checkbox!")
-                                    cloudflare_passed = True
-                                    break
-                            except Exception as e:
-                                driver.switch_to.default_content()
-                                continue
+                            except:
+                                pass
+                        
+                        driver.switch_to.default_content()
+                        
+                        # Aguardar um pouco após clicar
+                        time.sleep(2)
+                        
+                        # Verificar se passou após o clique
+                        if driver.title != "Just a moment..." and "moment" not in driver.title.lower():
+                            print("Cloudflare passou após interagir com o Turnstile!")
+                            cloudflare_passed = True
+                            break
+                    except Exception as e:
+                        try:
+                            driver.switch_to.default_content()
+                        except:
+                            pass
+                        print(f"Erro ao interagir com iframe: {e}")
+                        continue
                     
                     # Verificar se o token do Turnstile foi gerado (campo hidden preenchido)
                     try:
@@ -369,6 +475,19 @@ def acessar_pagina(url):
                 except:
                     pass
             
+            # Verificar se o driver ainda está ativo antes de continuar
+            if not is_driver_active(driver):
+                print("❌ ERRO: Navegador foi fechado durante a espera do Cloudflare!")
+                raise Exception("Sessão do navegador foi perdida")
+            
+            # Se encontrou o Turnstile, fazer mais movimento do mouse sobre ele para simular comportamento humano
+            if turnstile_found and turnstile_iframe:
+                try:
+                    # Movimento aleatório sobre o iframe
+                    actions.move_to_element_with_offset(turnstile_iframe, random.randint(-10, 10), random.randint(-10, 10)).pause(0.2).perform()
+                except:
+                    pass
+            
             # Aguardar um pouco antes de verificar novamente
             time.sleep(2)
             
@@ -381,11 +500,20 @@ def acessar_pagina(url):
             print(f"Tempo de espera esgotado ({max_wait_time}s). Tentando continuar mesmo assim...")
             time.sleep(3)
         
+        # Verificar se o driver ainda está ativo antes da verificação final
+        if not is_driver_active(driver):
+            print("❌ ERRO: Navegador foi fechado durante a espera do Cloudflare!")
+            raise Exception("Sessão do navegador foi perdida")
+        
         # Verificação final antes de tentar login
         print("\n" + "="*60)
         print("Verificação final do status da página:")
-        print(f"Título da página: {driver.title}")
-        print(f"URL atual: {driver.current_url}")
+        try:
+            print(f"Título da página: {driver.title}")
+            print(f"URL atual: {driver.current_url}")
+        except Exception as e:
+            print(f"❌ ERRO ao verificar status da página: {e}")
+            raise
         print("="*60 + "\n")
         
         # Verificar se ainda está na página do Cloudflare
@@ -398,59 +526,72 @@ def acessar_pagina(url):
             if "Just a moment" in driver.title:
                 print("❌ ERRO: Não foi possível passar pelo Cloudflare automaticamente.")
                 print("O Cloudflare pode estar bloqueando automação.")
-                print("Tente executar manualmente ou aguarde mais tempo.")
+                print("O Cloudflare pode estar bloqueando automação nesta tentativa.")
                 raise Exception("Cloudflare não passou após aguardar")
         
-        # Fazer login
-        print("Realizando login...")
-        print("Aguardando campo de usuário aparecer...")
+        # Fazer login (apenas se necessário)
+        print("Verificando se login é necessário...")
         
-        # Aguardar até 30 segundos pelo campo de usuário
-        campo_usuario = wait.until(
-            EC.presence_of_element_located((By.ID, "cLogin_dbUsername"))
-        )
+        # Verificar se já estamos logados ou se o campo de login não existe
+        try:
+            # Procurar o campo de usuário com um timeout curto (3 segundos) para não travar o bot
+            driver.implicitly_wait(3)
+            campo_usuario_existente = driver.find_elements(By.ID, "cLogin_dbUsername")
+            driver.implicitly_wait(10) # Volta o timeout padrão
+            
+            if not campo_usuario_existente:
+                print("✅ Sessão já ativa ou redirecionado direto para a área interna. Pulando login...")
+            else:
+                print("Realizando login...")
+                # Aguardar até 30 segundos pelo campo de usuário
+                campo_usuario = wait.until(
+                    EC.presence_of_element_located((By.ID, "cLogin_dbUsername"))
+                )
+                
+                # Clicar no campo de usuário e preencher
+                campo_usuario.click()
+                campo_usuario.clear()
+                campo_usuario.send_keys("EAndriao")
+                print("Usuário preenchido: EAndriao")
+                
+                # Aguardar um pouco
+                time.sleep(1)
+                
+                # Aguardar e encontrar o campo de senha
+                campo_senha = wait.until(
+                    EC.presence_of_element_located((By.ID, "cLogin_dbPassword"))
+                )
+                
+                # Clicar no campo de senha e preencher
+                campo_senha.click()
+                campo_senha.clear()
+                campo_senha.send_keys("Dudu2025")
+                print("Senha preenchida")
+                
+                # Aguardar um pouco antes de clicar no botão de login
+                time.sleep(1)
+                
+                # Clicar no botão de login
+                print("Clicando no botão de login...")
+                botao_login = wait.until(
+                    EC.element_to_be_clickable((By.ID, "buttonLogin"))
+                )
+                
+                # Mover mouse até o botão e clicar
+                actions.move_to_element(botao_login).pause(0.5).click().perform()
+                print("Botão de login clicado!")
+                
+                # Aguardar um pouco para a página processar o login
+                time.sleep(3)
+        except Exception as e:
+            print(f"Nota: Fluxo de login pulado ou erro ao tentar (pode já estar logado): {e}")
+            driver.implicitly_wait(10) # Garante que o wait volte ao normal se houver erro
         
-        # Clicar no campo de usuário e preencher
-        campo_usuario.click()
-        campo_usuario.clear()
-        campo_usuario.send_keys("EAndriao")
-        print("Usuário preenchido: EAndriao")
+        # Verificar o status após (tentativa de) login
+        print(f"Título da página: {driver.title}")
+        print(f"URL atual: {driver.current_url}")
         
-        # Aguardar um pouco
-        time.sleep(1)
-        
-        # Aguardar e encontrar o campo de senha
-        campo_senha = wait.until(
-            EC.presence_of_element_located((By.ID, "cLogin_dbPassword"))
-        )
-        
-        # Clicar no campo de senha e preencher
-        campo_senha.click()
-        campo_senha.clear()
-        campo_senha.send_keys("Dudu2025")
-        print("Senha preenchida")
-        
-        # Aguardar um pouco antes de clicar no botão de login
-        time.sleep(1)
-        
-        # Clicar no botão de login
-        print("Clicando no botão de login...")
-        botao_login = wait.until(
-            EC.element_to_be_clickable((By.ID, "buttonLogin"))
-        )
-        
-        # Mover mouse até o botão e clicar
-        actions.move_to_element(botao_login).pause(0.5).click().perform()
-        print("Botão de login clicado!")
-        
-        # Aguardar um pouco para a página processar o login
-        time.sleep(3)
-        
-        # Verificar se o login foi bem-sucedido (verificar se mudou de página ou apareceu algum elemento)
-        print(f"Título após login: {driver.title}")
-        print(f"URL após login: {driver.current_url}")
-        
-        # Aguardar a página carregar completamente após login
+        # Aguardar a página carregar completamente
         time.sleep(2)
         
         # Garantir que o filtro "Active" esteja selecionado
@@ -731,39 +872,25 @@ def acessar_pagina(url):
             # Passo 2: Clicar em "All Sale Orders"
             print("\n2. Clicando em 'All Sale Orders'...")
             try:
-                # Primeiro tentar o link <a> específico com o href
+                # Usar um seletor mais genérico e robusto (sem datas fixas)
                 link_all_sale_orders = wait.until(
-                    EC.element_to_be_clickable((By.XPATH, "//a[@href='listSaleOrders.aspx?tab=0&ListStartDate=12/1/2025&ListEndDate=1/31/2026']"))
+                    EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'listSaleOrders.aspx') and contains(., 'All Sale Orders')]"))
                 )
                 driver.execute_script("arguments[0].scrollIntoView(true);", link_all_sale_orders)
                 time.sleep(0.5)
-                actions.move_to_element(link_all_sale_orders).pause(0.3).click().perform()
-                print("✅ Clicou em 'All Sale Orders' (link específico)")
-                time.sleep(3)
+                # Tenta clique via JS que é instantâneo e evita bloqueios de sobreposição
+                driver.execute_script("arguments[0].click();", link_all_sale_orders)
+                print("✅ Clicou em 'All Sale Orders' (via JS)")
+                time.sleep(2)
             except Exception as e:
-                print(f"⚠️  Erro ao clicar no link específico: {e}")
-                # Tentar método alternativo: link com href que contém listSaleOrders
+                print(f"⚠️  Erro ao clicar em 'All Sale Orders': {e}")
+                # Fallback: tentar qualquer link que contenha o texto
                 try:
-                    link_all_sale_orders = wait.until(
-                        EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'listSaleOrders.aspx') and contains(text(), 'All Sale Orders')]"))
-                    )
-                    driver.execute_script("arguments[0].scrollIntoView(true);", link_all_sale_orders)
-                    time.sleep(0.5)
-                    actions.move_to_element(link_all_sale_orders).pause(0.3).click().perform()
-                    print("✅ Clicou em 'All Sale Orders' (método alternativo 1)")
-                    time.sleep(3)
-                except Exception as e2:
-                    print(f"⚠️  Erro no método alternativo 1: {e2}")
-                    # Tentar método alternativo 2: div com onclick
-                    try:
-                        div_all_sale_orders = driver.find_element(By.XPATH, "//div[contains(@onclick, 'listSaleOrders.aspx')]")
-                        driver.execute_script("arguments[0].scrollIntoView(true);", div_all_sale_orders)
-                        time.sleep(0.5)
-                        actions.move_to_element(div_all_sale_orders).pause(0.3).click().perform()
-                        print("✅ Clicou em 'All Sale Orders' (método alternativo 2)")
-                        time.sleep(3)
-                    except:
-                        raise Exception("Não foi possível encontrar 'All Sale Orders'")
+                    link_fallback = driver.find_element(By.LINK_TEXT, "All Sale Orders")
+                    driver.execute_script("arguments[0].click();", link_fallback)
+                    print("✅ Clicou em 'All Sale Orders' (link text)")
+                except:
+                    raise Exception("Não foi possível encontrar 'All Sale Orders'")
             
             # Passo 3: Clicar em "All"
             print("\n3. Clicando em 'All'...")
@@ -1109,5 +1236,25 @@ def acessar_pagina(url):
 
 if __name__ == "__main__":
     url = "https://aracruz.stoneprofits.com/listCustomers.aspx"
-    acessar_pagina(url)
+    try:
+        # 1. Acessa a página e faz os downloads
+        acessar_pagina(url)
+        
+        # 2. Após terminar o download, processa a planilha de clientes
+        print("\n" + "="*40)
+        print("🤖 Iniciando processamento automático dos dados...")
+        from processar_clientes import processar_e_salvar_clientes, comparar_ultimas_planilhas, enviar_para_n8n
+        caminho_final = processar_e_salvar_clientes()
+        
+        if caminho_final:
+            caminho_diff = comparar_ultimas_planilhas()
+            if caminho_diff:
+                enviar_para_n8n(caminho_diff)
+            print(f"🏁 Fluxo completo finalizado com sucesso!")
+        else:
+            print(f"⚠️  Downloads concluídos, mas houve um erro no processamento.")
+        print("="*40)
+        
+    except Exception as e:
+        print(f"❌ Falha no fluxo diário: {e}")
 

@@ -1,4 +1,7 @@
 selenium==4.15.2
 webdriver-manager==4.0.1
 undetected-chromedriver==3.5.4
+setuptools==80.10.2
+pandas
+openpyxl
 
