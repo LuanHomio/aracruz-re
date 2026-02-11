@@ -5,9 +5,9 @@ from io import StringIO
 import re
 from datetime import datetime
 import requests
+import html
 
-# URL do seu Webhook do n8n (Substitua pela sua URL real)
-N8N_WEBHOOK_URL = "https://api.homio.com.br/webhook/aracruz-re"
+N8N_WEBHOOK_URL = "https://api.homio.com.br/webhook/72d00810-1131-492a-b8a2-82158bc43c7f"
 
 def extrair_telefones(texto):
     if pd.isna(texto) or str(texto).strip() == "":
@@ -67,16 +67,27 @@ def processar_e_salvar_clientes():
         else:
             novos_phone1.append("")
             novos_phone2.append("")
-            
-    # Atualiza o DataFrame com os telefones organizados e garante que sejam STRING
+    
     df['Phone1'] = [str(x) if x else "" for x in novos_phone1]
     df['Phone2'] = [str(x) if x else "" for x in novos_phone2]
     if 'Mobile' in df.columns:
         df['Mobile'] = ""
     
-    # Garantir que as colunas de telefone sejam tratadas como objeto/string pelo pandas
     df['Phone1'] = df['Phone1'].astype(str)
     df['Phone2'] = df['Phone2'].astype(str)
+    
+    if 'Email' in df.columns:
+        def limpar_email(valor):
+            if pd.isna(valor):
+                return ""
+            texto = str(valor)
+            texto = html.unescape(texto)
+            partes = texto.split('<br>')
+            primeiro = partes[0]
+            primeiro = re.sub(r'<[^>]+>', '', primeiro)
+            return primeiro.strip()
+        
+        df['Email'] = df['Email'].apply(limpar_email)
     
     nome_base = os.path.basename(arquivo_sujo).replace('.csv', '_LIMPO.xlsx')
     caminho_limpo = os.path.join("downloads", "clientes", nome_base)
@@ -176,8 +187,35 @@ def comparar_ultimas_planilhas():
     print(f"\n📊 Planilha de diferenças gerada: {caminho_diff}")
     print(f"   ➕ Novos: {len(novos)}")
     print(f"   📝 Clientes com Alteração: {len(df_ghl_alteracoes)}")
-    
     return caminho_diff
+
+
+def limpar_arquivos_clientes():
+    pasta = os.path.join("downloads", "clientes")
+    padrao_csv = os.path.join(pasta, "*.csv")
+    padrao_limpo = os.path.join(pasta, "*_LIMPO.xlsx")
+    padrao_diff = os.path.join(pasta, "DIFERENCAS_CLIENTES_*.xlsx")
+    csvs = sorted(glob.glob(padrao_csv), key=os.path.getmtime, reverse=True)
+    for arquivo in csvs[1:]:
+        try:
+            os.remove(arquivo)
+            print(f"🗑️ Removendo CSV antigo: {os.path.basename(arquivo)}")
+        except Exception as e:
+            print(f"⚠️ Erro ao remover CSV antigo {arquivo}: {e}")
+    limpos = sorted(glob.glob(padrao_limpo), key=os.path.getmtime, reverse=True)
+    for arquivo in limpos[2:]:
+        try:
+            os.remove(arquivo)
+            print(f"🗑️ Removendo LIMPO antigo: {os.path.basename(arquivo)}")
+        except Exception as e:
+            print(f"⚠️ Erro ao remover LIMPO antigo {arquivo}: {e}")
+    diffs = sorted(glob.glob(padrao_diff), key=os.path.getmtime, reverse=True)
+    for arquivo in diffs[3:]:
+        try:
+            os.remove(arquivo)
+            print(f"🗑️ Removendo diferença antiga: {os.path.basename(arquivo)}")
+        except Exception as e:
+            print(f"⚠️ Erro ao remover diferença antiga {arquivo}: {e}")
 
 def enviar_para_n8n(caminho_arquivo):
     if not N8N_WEBHOOK_URL or "SUA_URL" in N8N_WEBHOOK_URL:
@@ -186,20 +224,23 @@ def enviar_para_n8n(caminho_arquivo):
     
     try:
         print(f"\n🚀 Enviando arquivo para o n8n: {os.path.basename(caminho_arquivo)}...")
-        
-        with open(caminho_arquivo, 'rb') as f:
-            # Enviando como 'data' que é o padrão que o n8n espera para arquivos binários
-            files = {'data': (os.path.basename(caminho_arquivo), f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
-            response = requests.post(N8N_WEBHOOK_URL, files=files, timeout=30)
-            
-        if response.status_code == 200:
-            print("✅ Arquivo enviado com sucesso para o n8n!")
+        with open(caminho_arquivo, "rb") as f:
+            files = {
+                "data": (
+                    os.path.basename(caminho_arquivo),
+                    f,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            }
+            response = requests.post(N8N_WEBHOOK_URL, files=files, timeout=600)
+        texto = response.text or ""
+        if response.status_code == 200 and "Contatos atualizados com sucesso" in texto:
+            print("✅ Resposta do n8n indica sucesso para contatos.")
+            limpar_arquivos_clientes()
             return True
-        else:
-            print(f"❌ Erro ao enviar para o n8n: Status {response.status_code}")
-            print(f"   Resposta: {response.text}")
-            return False
-            
+        print(f"❌ Erro ou resposta inesperada ao enviar para o n8n: Status {response.status_code}")
+        print(f"   Resposta: {texto}")
+        return False
     except Exception as e:
         print(f"❌ Falha crítica ao conectar com o n8n: {e}")
         return False

@@ -892,7 +892,6 @@ def acessar_pagina(url):
                 except:
                     raise Exception("Não foi possível encontrar 'All Sale Orders'")
             
-            # Passo 3: Clicar em "All"
             print("\n3. Clicando em 'All'...")
             try:
                 link_all = wait.until(
@@ -902,12 +901,10 @@ def acessar_pagina(url):
                 time.sleep(0.5)
                 actions.move_to_element(link_all).pause(0.3).click().perform()
                 print("✅ Clicou em 'All'")
-                # Aguardar mais tempo para a página carregar completamente
                 print("Aguardando página carregar após clicar em 'All'...")
                 time.sleep(5)
             except Exception as e:
                 print(f"⚠️  Erro ao clicar em 'All': {e}")
-                # Tentar método alternativo
                 try:
                     link_all = driver.find_element(By.XPATH, "//a[contains(@href, 'listSaleOrders') and contains(text(), 'All')]")
                     driver.execute_script("arguments[0].scrollIntoView(true);", link_all)
@@ -919,7 +916,6 @@ def acessar_pagina(url):
                 except:
                     raise Exception("Não foi possível encontrar o link 'All'")
             
-            # Passo 4: Clicar na imagem do Excel
             print("\n4. Clicando na imagem do Excel para baixar...")
             download_sales_dir = os.path.abspath(os.path.join(os.getcwd(), "downloads", "sales"))
             
@@ -1240,19 +1236,49 @@ if __name__ == "__main__":
         # 1. Acessa a página e faz os downloads
         acessar_pagina(url)
         
-        # 2. Após terminar o download, processa a planilha de clientes
+        # 2. Após terminar o download, processa sequencialmente: clientes primeiro, depois sales
         print("\n" + "="*40)
         print("🤖 Iniciando processamento automático dos dados...")
         from processar_clientes import processar_e_salvar_clientes, comparar_ultimas_planilhas, enviar_para_n8n
-        caminho_final = processar_e_salvar_clientes()
+        from processar_sales import processar_sales, enviar_sales_para_n8n
         
-        if caminho_final:
-            caminho_diff = comparar_ultimas_planilhas()
-            if caminho_diff:
-                enviar_para_n8n(caminho_diff)
-            print(f"🏁 Fluxo completo finalizado com sucesso!")
-        else:
-            print(f"⚠️  Downloads concluídos, mas houve um erro no processamento.")
+        # PASSO 1: Processar e enviar CLIENTES primeiro
+        print("\n" + "="*60)
+        print("📋 PASSO 1: Processando CLIENTES...")
+        print("="*60)
+        caminho_final_clientes = processar_e_salvar_clientes()
+        
+        sucesso_clientes = False
+        caminho_diff_clientes = None
+        if caminho_final_clientes:
+            caminho_diff_clientes = comparar_ultimas_planilhas()
+            if caminho_diff_clientes:
+                print("\n⏳ Enviando clientes para n8n (pode demorar alguns minutos na primeira vez)...")
+                sucesso_clientes = enviar_para_n8n(caminho_diff_clientes)
+            else:
+                print("ℹ️  Nenhuma diferença de clientes detectada (primeira execução ou sem mudanças)")
+                sucesso_clientes = True
+        
+        # PASSO 2: Processar SALES enquanto clientes estão sendo processados no n8n
+        print("\n" + "="*60)
+        print("📊 PASSO 2: Processando SALES (enquanto clientes são processados no n8n)...")
+        print("="*60)
+        caminho_diff_sales = processar_sales()
+        
+        # PASSO 3: Aguardar sucesso dos clientes antes de enviar sales
+        if sucesso_clientes and caminho_diff_sales:
+            print("\n" + "="*60)
+            print("📤 PASSO 3: Enviando SALES para n8n (após sucesso dos clientes)...")
+            print("="*60)
+            enviar_sales_para_n8n(caminho_diff_sales)
+            print(f"\n🏁 Fluxo completo finalizado com sucesso!")
+        elif not sucesso_clientes:
+            print(f"\n⚠️  Clientes não foram processados com sucesso. Sales não serão enviados.")
+            print(f"   Verifique os logs acima para identificar o problema.")
+        elif not caminho_diff_sales:
+            print(f"\nℹ️  Sales processadas, mas nenhuma diferença detectada (primeira execução ou sem mudanças).")
+            print(f"🏁 Fluxo completo finalizado!")
+        
         print("="*40)
         
     except Exception as e:
