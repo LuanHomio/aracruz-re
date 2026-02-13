@@ -5,4 +5,5 @@ setuptools==80.10.2
 pandas
 openpyxl
 lxml
+flask
 

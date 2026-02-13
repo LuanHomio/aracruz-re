@@ -1,3 +1,2 @@
-2026/02/13-11:56:14.345 81b4 Reusing MANIFEST C:\Users\luanb\Documents\cursor\Aracruz-RE\aracruz-re\bot_profile\Default\Site Characteristics Database/MANIFEST-000001
-2026/02/13-11:56:14.346 81b4 Recovering log #3
-2026/02/13-11:56:14.347 81b4 Reusing old log C:\Users\luanb\Documents\cursor\Aracruz-RE\aracruz-re\bot_profile\Default\Site Characteristics Database/000003.log 
+2026/02/13-14:15:22.350 35a7 Creating DB /home/paulo-assis/aracruz-re/bot_profile/Default/Site Characteristics Database since it was missing.
+2026/02/13-14:15:22.376 35a7 Reusing MANIFEST /home/paulo-assis/aracruz-re/bot_profile/Default/Site Characteristics Database/MANIFEST-000001

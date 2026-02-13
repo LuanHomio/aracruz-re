@@ -36,10 +36,13 @@ def acessar_pagina(url):
     # Configurar opções do Chrome
     # Se usar undetected-chromedriver, ele já tem opções anti-detecção embutidas
     chrome_options = Options()
-    # Descomente a linha abaixo se quiser executar em modo headless (sem abrir o navegador)
-    # chrome_options.add_argument("--headless")
     
-    # Adicionar opções para WSL/Linux
+    # Ativar headless automaticamente se estiver rodando no Docker
+    if os.getenv("DOCKER_ENV") == "true":
+        chrome_options.add_argument("--headless")
+        print("🐳 Modo Docker detectado: executando em modo headless")
+    
+    # Adicionar opções para WSL/Linux/Docker
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
@@ -164,6 +167,11 @@ def acessar_pagina(url):
         uc_options.add_argument("--no-sandbox")
         uc_options.add_argument("--disable-dev-shm-usage")
         uc_options.add_argument("--window-size=1920,1080")
+        
+        # Ativar headless se estiver no Docker
+        if os.getenv("DOCKER_ENV") == "true":
+            uc_options.add_argument("--headless")
+            print("🐳 Modo Docker detectado: executando em modo headless")
         
         # Não desabilitamos a GPU pois o Cloudflare checa isso para detectar bots
         
