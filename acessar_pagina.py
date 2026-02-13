@@ -48,14 +48,17 @@ def acessar_pagina(url):
     download_dir = os.path.abspath(os.path.join(os.getcwd(), "downloads"))
     download_clientes_dir = os.path.abspath(os.path.join(download_dir, "clientes"))
     download_sales_dir = os.path.abspath(os.path.join(download_dir, "sales"))
+    download_holds_dir = os.path.abspath(os.path.join(download_dir, "holds"))
     
     os.makedirs(download_dir, exist_ok=True)
     os.makedirs(download_clientes_dir, exist_ok=True)
     os.makedirs(download_sales_dir, exist_ok=True)
+    os.makedirs(download_holds_dir, exist_ok=True)
     
     print(f"Diretório de download configurado: {download_dir}")
     print(f"  - Clientes: {download_clientes_dir}")
     print(f"  - Sales: {download_sales_dir}")
+    print(f"  - Holds: {download_holds_dir}")
     
     # Configurar preferências de download
     prefs = {
@@ -565,7 +568,7 @@ def acessar_pagina(url):
                 # Clicar no campo de senha e preencher
                 campo_senha.click()
                 campo_senha.clear()
-                campo_senha.send_keys("Dudu2025")
+                campo_senha.send_keys("Dudu1976")
                 print("Senha preenchida")
                 
                 # Aguardar um pouco antes de clicar no botão de login
@@ -838,6 +841,199 @@ def acessar_pagina(url):
                 print(f"   Verifique manualmente os diretórios: {', '.join(possiveis_diretorios)}")
         else:
             print("⚠️  Não foi possível encontrar a imagem do CSV para clicar.")
+        
+        # ========== BAIXAR HOLDS ==========
+        print("\n" + "="*60)
+        print("INICIANDO DOWNLOAD DE HOLDS")
+        print("="*60)
+        
+        try:
+            print("\n1. Clicando em 'Sales'...")
+            try:
+                link_sales = wait.until(
+                    EC.element_to_be_clickable((By.XPATH, "//a[@href='/vSalesHome.aspx']"))
+                )
+                driver.execute_script("arguments[0].scrollIntoView(true);", link_sales)
+                time.sleep(0.5)
+                actions.move_to_element(link_sales).pause(0.3).click().perform()
+                print("✅ Clicou em 'Sales'")
+                time.sleep(2)
+            except Exception as e:
+                print(f"⚠️  Erro ao clicar em 'Sales': {e}")
+                try:
+                    link_sales = driver.find_element(By.XPATH, "//a[contains(text(), 'Sales')]")
+                    driver.execute_script("arguments[0].scrollIntoView(true);", link_sales)
+                    time.sleep(0.5)
+                    actions.move_to_element(link_sales).pause(0.3).click().perform()
+                    print("✅ Clicou em 'Sales' (método alternativo)")
+                    time.sleep(2)
+                except:
+                    raise Exception("Não foi possível encontrar o link 'Sales'")
+            
+            print("\n2. Clicando em 'Holds' (sidebar, não 'On Credit Hold')...")
+            try:
+                link_holds = wait.until(
+                    EC.element_to_be_clickable((By.LINK_TEXT, "Holds"))
+                )
+                driver.execute_script("arguments[0].scrollIntoView(true);", link_holds)
+                time.sleep(0.5)
+                driver.execute_script("arguments[0].click();", link_holds)
+                print("✅ Clicou em 'Holds'")
+                time.sleep(2)
+            except Exception as e:
+                print(f"⚠️  Erro ao clicar em 'Holds': {e}")
+                try:
+                    link_holds = driver.find_element(By.XPATH, "//a[contains(@href,'listOpportunities') and contains(@href,'tab=5')]")
+                    driver.execute_script("arguments[0].click();", link_holds)
+                    print("✅ Clicou em 'Holds' (href listOpportunities tab=5)")
+                except:
+                    try:
+                        link_holds = driver.find_element(By.XPATH, "//a[contains(@href,'Hold') and not(contains(@href,'Credit'))]")
+                        driver.execute_script("arguments[0].click();", link_holds)
+                        print("✅ Clicou em 'Holds' (excluindo On Credit Hold)")
+                    except:
+                        raise Exception("Não foi possível encontrar 'Holds'")
+            
+            print("\n3. Clicando em 'All' (Holds)...")
+            try:
+                link_all_holds = wait.until(
+                    EC.element_to_be_clickable((By.XPATH, "//a[@class='underline' and contains(@title, 'Show All')]"))
+                )
+                driver.execute_script("arguments[0].scrollIntoView(true);", link_all_holds)
+                time.sleep(0.5)
+                actions.move_to_element(link_all_holds).pause(0.3).click().perform()
+                print("✅ Clicou em 'All' (Holds)")
+                time.sleep(5)
+            except Exception as e:
+                print(f"⚠️  Erro ao clicar em 'All' (Holds): {e}")
+                try:
+                    link_all_holds = driver.find_element(By.XPATH, "//a[(contains(@href, 'listOpportunities') or contains(@href, 'ListHold')) and contains(text(), 'All')]")
+                    driver.execute_script("arguments[0].click();", link_all_holds)
+                    print("✅ Clicou em 'All' (método alternativo)")
+                    time.sleep(5)
+                except:
+                    raise Exception("Não foi possível encontrar o link 'All' na página de Holds")
+            
+            print("\n4. Clicando na imagem do Excel para baixar Holds...")
+            download_holds_dir = os.path.abspath(os.path.join(os.getcwd(), "downloads", "holds"))
+            time.sleep(2)
+            
+            img_excel_holds_selectors = [
+                "img[src*='icon_excel.gif']",
+                "img[src*='excel']",
+                "a[title='Export to Excel']",
+                "a[title='Export to Excel'] img",
+            ]
+            
+            img_excel_holds_encontrada = False
+            for selector in img_excel_holds_selectors:
+                try:
+                    elems = driver.find_elements(By.CSS_SELECTOR, selector)
+                    for elem in elems:
+                        try:
+                            target = elem if elem.tag_name == "a" else elem.find_element(By.XPATH, "./ancestor::a[1]")
+                            if target and target.is_displayed():
+                                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
+                                time.sleep(1)
+                                driver.execute_script("arguments[0].click();", target)
+                                print("✅ Clicou no export Excel (Holds)")
+                                img_excel_holds_encontrada = True
+                                break
+                        except:
+                            if elem.is_displayed():
+                                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elem)
+                                time.sleep(1)
+                                driver.execute_script("arguments[0].click();", elem)
+                                print("✅ Clicou no export Excel (Holds)")
+                                img_excel_holds_encontrada = True
+                                break
+                    if img_excel_holds_encontrada:
+                        break
+                except:
+                    continue
+            
+            if not img_excel_holds_encontrada:
+                all_imgs = driver.find_elements(By.TAG_NAME, "img")
+                for img in all_imgs:
+                    try:
+                        src = img.get_attribute("src") or ""
+                        if "excel" in src.lower():
+                            link_excel = img.find_element(By.XPATH, "./ancestor::a[1]")
+                            if link_excel.is_displayed():
+                                driver.execute_script("arguments[0].click();", link_excel)
+                                print("✅ Clicou no export Excel (busca ampla)")
+                                img_excel_holds_encontrada = True
+                                break
+                    except:
+                        continue
+            
+            if img_excel_holds_encontrada:
+                print("Aguardando download do arquivo Excel de holds...")
+                possiveis_diretorios_holds = [
+                    download_holds_dir,
+                    os.path.abspath(os.path.join(os.getcwd(), "downloads")),
+                    os.path.expanduser("~/Downloads"),
+                    os.path.expanduser("~/downloads"),
+                    "/tmp",
+                ]
+                max_wait_download = 60
+                start_download = time.time()
+                arquivo_baixado_holds = None
+                arquivos_antes_holds = {}
+                for dir_path in possiveis_diretorios_holds:
+                    if os.path.exists(dir_path):
+                        try:
+                            arquivos_antes_holds[dir_path] = set(Path(dir_path).glob("*.xls*"))
+                        except:
+                            arquivos_antes_holds[dir_path] = set()
+                
+                while time.time() - start_download < max_wait_download:
+                    for dir_path in possiveis_diretorios_holds:
+                        if not os.path.exists(dir_path):
+                            continue
+                        try:
+                            arquivos_atuais = set(Path(dir_path).glob("*.xls*"))
+                            arquivos_novos = arquivos_atuais - arquivos_antes_holds.get(dir_path, set())
+                            if arquivos_novos:
+                                arquivo_mais_recente = max(arquivos_novos, key=os.path.getctime)
+                                if time.time() - os.path.getmtime(arquivo_mais_recente) < 60:
+                                    arquivo_baixado_holds = arquivo_mais_recente
+                                    break
+                            if not arquivo_baixado_holds and arquivos_atuais:
+                                arquivo_mais_recente = max(arquivos_atuais, key=os.path.getmtime)
+                                if time.time() - os.path.getmtime(arquivo_mais_recente) < 60:
+                                    arquivo_baixado_holds = arquivo_mais_recente
+                                    break
+                        except:
+                            continue
+                    if arquivo_baixado_holds:
+                        break
+                    time.sleep(1)
+                
+                if arquivo_baixado_holds:
+                    if str(arquivo_baixado_holds.parent) != download_holds_dir:
+                        print(f"Movendo arquivo de {arquivo_baixado_holds.parent} para {download_holds_dir}...")
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    extensao = arquivo_baixado_holds.suffix
+                    novo_nome = f"holds_{timestamp}{extensao}"
+                    caminho_final_holds = os.path.join(download_holds_dir, novo_nome)
+                    contador = 1
+                    while os.path.exists(caminho_final_holds):
+                        novo_nome = f"holds_{timestamp}_{contador}{extensao}"
+                        caminho_final_holds = os.path.join(download_holds_dir, novo_nome)
+                        contador += 1
+                    shutil.move(str(arquivo_baixado_holds), caminho_final_holds)
+                    print(f"✅ Arquivo Excel de holds salvo em: {caminho_final_holds}")
+                else:
+                    print("⚠️  Arquivo Excel de holds não foi baixado no tempo esperado.")
+            else:
+                print("⚠️  Não foi possível encontrar o botão de export Excel na página de Holds.")
+        
+        except Exception as e:
+            print(f"⚠️  Erro ao baixar holds: {e}")
+            import traceback
+            traceback.print_exc()
+            print("Continuando para Sales...")
         
         # ========== BAIXAR SALES ==========
         print("\n" + "="*60)
@@ -1241,6 +1437,7 @@ if __name__ == "__main__":
         print("🤖 Iniciando processamento automático dos dados...")
         from processar_clientes import processar_e_salvar_clientes, comparar_ultimas_planilhas, enviar_para_n8n
         from processar_sales import processar_sales, enviar_sales_para_n8n
+        from processar_holds import processar_holds, enviar_holds_para_webhook
         
         # PASSO 1: Processar e enviar CLIENTES primeiro
         print("\n" + "="*60)
@@ -1259,16 +1456,27 @@ if __name__ == "__main__":
                 print("ℹ️  Nenhuma diferença de clientes detectada (primeira execução ou sem mudanças)")
                 sucesso_clientes = True
         
-        # PASSO 2: Processar SALES enquanto clientes estão sendo processados no n8n
+        # PASSO 2: Processar e enviar HOLDS
         print("\n" + "="*60)
-        print("📊 PASSO 2: Processando SALES (enquanto clientes são processados no n8n)...")
+        print("📦 PASSO 2: Processando HOLDS...")
+        print("="*60)
+        caminho_diff_holds = processar_holds()
+        if caminho_diff_holds:
+            print("\n⏳ Enviando holds para webhook...")
+            enviar_holds_para_webhook(caminho_diff_holds)
+        else:
+            print("ℹ️  Nenhuma diferença de holds detectada (primeira execução ou sem mudanças)")
+        
+        # PASSO 3: Processar SALES
+        print("\n" + "="*60)
+        print("📊 PASSO 3: Processando SALES...")
         print("="*60)
         caminho_diff_sales = processar_sales()
         
-        # PASSO 3: Aguardar sucesso dos clientes antes de enviar sales
+        # PASSO 4: Aguardar sucesso dos clientes antes de enviar sales
         if sucesso_clientes and caminho_diff_sales:
             print("\n" + "="*60)
-            print("📤 PASSO 3: Enviando SALES para n8n (após sucesso dos clientes)...")
+            print("📤 PASSO 4: Enviando SALES para n8n (após sucesso dos clientes)...")
             print("="*60)
             enviar_sales_para_n8n(caminho_diff_sales)
             print(f"\n🏁 Fluxo completo finalizado com sucesso!")
