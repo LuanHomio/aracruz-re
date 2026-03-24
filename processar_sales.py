@@ -107,7 +107,9 @@ def comparar_ultimas_planilhas_sales():
     lista_log_alteracoes = []
     lista_ghl_alteracoes = []
 
-    colunas_interesse = [c for c in df_novo.columns if c in df_antigo.columns and c != "SO #"]
+    colunas_interesse = [
+        c for c in df_novo.columns if c in df_antigo.columns and c not in ("SO #", "Days")
+    ]
 
     for so in comuns:
         row_n = df_novo_idx.loc[so]

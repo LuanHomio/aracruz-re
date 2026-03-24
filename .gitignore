@@ -25,3 +25,6 @@ downloads/
 *.xls
 *.xlsx
 
+# Chrome profile
+bot_profile/
+

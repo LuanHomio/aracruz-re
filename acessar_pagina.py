@@ -180,8 +180,7 @@ def acessar_pagina(url):
         }
         uc_options.add_experimental_option("prefs", prefs)
         
-        # O version_main=144 garante compatibilidade com sua versão do Chrome
-        driver = uc.Chrome(options=uc_options, version_main=144, use_subprocess=True)
+        driver = uc.Chrome(options=uc_options, use_subprocess=True)
     else:
         # Criar o serviço do ChromeDriver
         service = Service(driver_path)
@@ -597,122 +596,31 @@ def acessar_pagina(url):
         # Aguardar a página carregar completamente
         time.sleep(2)
         
-        # Garantir que o filtro "Active" esteja selecionado
-        print("\nVerificando se o filtro 'Active' está selecionado...")
-        active_encontrado = False
-        
+        print("\nAjustando Status de 'Active' para 'All'...")
         try:
-            # Método 1: Procurar por span com texto exato "Active"
-            try:
-                span_active = driver.find_element(By.XPATH, "//span[normalize-space(text())='Active']")
-                if span_active:
-                    # Verificar se já está ativo/selecionado
-                    classes = span_active.get_attribute("class") or ""
-                    try:
-                        parent = span_active.find_element(By.XPATH, "..")
-                        parent_classes = parent.get_attribute("class") or ""
-                    except:
-                        parent_classes = ""
-                    
-                    # Verificar se já está ativo
-                    if "active" in classes.lower() or "selected" in classes.lower() or "active" in parent_classes.lower():
-                        print("✅ Filtro 'Active' já está selecionado!")
-                        active_encontrado = True
-                    else:
-                        # Clicar para ativar
-                        print("Clicando no filtro 'Active' para ativá-lo...")
-                        driver.execute_script("arguments[0].scrollIntoView(true);", span_active)
-                        time.sleep(0.5)
-                        actions.move_to_element(span_active).pause(0.3).click().perform()
-                        time.sleep(1)
-                        print("✅ Filtro 'Active' ativado!")
-                        active_encontrado = True
-            except:
-                pass
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#s2id_Status a.select2-choice")))
+            status_dropdown = driver.find_element(By.CSS_SELECTOR, "#s2id_Status a.select2-choice")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", status_dropdown)
+            time.sleep(0.5)
             
-            # Método 2: Se não encontrou, procurar por qualquer elemento com texto "Active"
-            if not active_encontrado:
-                try:
-                    elementos_active = driver.find_elements(By.XPATH, "//*[normalize-space(text())='Active']")
-                    for elemento in elementos_active:
-                        try:
-                            if elemento.is_displayed() and elemento.is_enabled():
-                                # Verificar se já está ativo
-                                classes = elemento.get_attribute("class") or ""
-                                if "active" in classes.lower() or "selected" in classes.lower():
-                                    print("✅ Filtro 'Active' já está selecionado!")
-                                    active_encontrado = True
-                                    break
-                                else:
-                                    print("Clicando no elemento 'Active' para ativá-lo...")
-                                    driver.execute_script("arguments[0].scrollIntoView(true);", elemento)
-                                    time.sleep(0.5)
-                                    actions.move_to_element(elemento).pause(0.3).click().perform()
-                                    time.sleep(1)
-                                    print("✅ Filtro 'Active' ativado!")
-                                    active_encontrado = True
-                                    break
-                        except:
-                            continue
-                except:
-                    pass
+            actions.move_to_element(status_dropdown).pause(0.3).click().perform()
+            time.sleep(1)
+
+            wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class,'select2-drop-active')]")))
             
-            # Método 3: Procurar por todos os spans e verificar qual contém "Active"
-            if not active_encontrado:
-                spans = driver.find_elements(By.TAG_NAME, "span")
-                for span in spans:
-                    try:
-                        texto = span.text.strip()
-                        if texto == "Active":
-                            classes = span.get_attribute("class") or ""
-                            if "active" in classes.lower() or "selected" in classes.lower():
-                                print("✅ Filtro 'Active' já está selecionado!")
-                                active_encontrado = True
-                                break
-                            else:
-                                print("Clicando no span 'Active' para ativá-lo...")
-                                driver.execute_script("arguments[0].scrollIntoView(true);", span)
-                                time.sleep(0.5)
-                                actions.move_to_element(span).pause(0.3).click().perform()
-                                time.sleep(1)
-                                print("✅ Filtro 'Active' ativado!")
-                                active_encontrado = True
-                                break
-                    except:
-                        continue
-            
-            if not active_encontrado:
-                print("⚠️  Não foi possível encontrar o elemento 'Active'. Continuando mesmo assim...")
-            else:
-                # Aguardar um pouco para o filtro ser aplicado
-                time.sleep(2)
-                
-                # Verificação final: garantir que Active está realmente selecionado
-                print("Verificando novamente se 'Active' está selecionado...")
-                try:
-                    span_active_final = driver.find_element(By.XPATH, "//span[normalize-space(text())='Active']")
-                    classes_final = span_active_final.get_attribute("class") or ""
-                    try:
-                        parent_final = span_active_final.find_element(By.XPATH, "..")
-                        parent_classes_final = parent_final.get_attribute("class") or ""
-                    except:
-                        parent_classes_final = ""
-                    
-                    if "active" in classes_final.lower() or "selected" in classes_final.lower() or "active" in parent_classes_final.lower():
-                        print("✅ Confirmação: Filtro 'Active' está selecionado!")
-                    else:
-                        print("⚠️  'Active' não parece estar selecionado. Tentando clicar novamente...")
-                        driver.execute_script("arguments[0].scrollIntoView(true);", span_active_final)
-                        time.sleep(0.5)
-                        actions.move_to_element(span_active_final).pause(0.3).click().perform()
-                        time.sleep(2)
-                        print("✅ Clicou novamente no 'Active'")
-                except:
-                    print("⚠️  Não foi possível verificar novamente o status do 'Active'")
-                
+            opcao_all = driver.find_element(By.XPATH, "//li[contains(@class,'select2-result-selectable')][contains(.,'All')]")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opcao_all)
+            time.sleep(0.3)
+            actions.move_to_element(opcao_all).pause(0.3).click().perform()
+            time.sleep(2)
+
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tr td")))
+            time.sleep(2)
+            print("✅ Status alterado para 'All' e tabela carregada.")
+
         except Exception as e:
-            print(f"⚠️  Erro ao verificar/ativar filtro 'Active': {e}")
-            print("Continuando mesmo assim...")
+            print(f"❌ Erro ao ajustar Status para 'All': {e}")
+            raise
         
         # Procurar e clicar na imagem do CSV
         print("\nProcurando pela imagem do CSV...")

@@ -7,7 +7,7 @@ from datetime import datetime
 import requests
 import html
 
-N8N_WEBHOOK_URL = "https://api.homio.com.br/webhook/72d00810-1131-492a-b8a2-82158bc43c7f"
+N8N_WEBHOOK_URL = "https://api.homio.com.br/webhook/aracruz-re/customers"
 
 def extrair_telefones(texto):
     if pd.isna(texto) or str(texto).strip() == "":
@@ -89,6 +89,12 @@ def processar_e_salvar_clientes():
         
         df['Email'] = df['Email'].apply(limpar_email)
     
+    if 'Name' in df.columns and 'Status' in df.columns:
+        df['Status'] = df['Status'].astype(str)
+        mask_zzz = df['Name'].astype(str).str.contains('Zzz', na=False)
+        df.loc[mask_zzz, 'Name'] = df.loc[mask_zzz, 'Name'].astype(str).str.replace('Zzz', '', regex=False).str.strip()
+        df.loc[mask_zzz, 'Status'] = 'Inativo'
+    
     nome_base = os.path.basename(arquivo_sujo).replace('.csv', '_LIMPO.xlsx')
     caminho_limpo = os.path.join("downloads", "clientes", nome_base)
     
@@ -138,10 +144,21 @@ def comparar_ultimas_planilhas():
         row_n = df_novo_idx.loc[nome]
         row_a = df_antigo_idx.loc[nome]
         
+        if isinstance(row_n, pd.DataFrame):
+            row_n = row_n.iloc[0]
+        if isinstance(row_a, pd.DataFrame):
+            row_a = row_a.iloc[0]
+        
         teve_mudanca = False
         for col in colunas_interesse:
-            v_n = str(row_n[col]) if not pd.isna(row_n[col]) else ""
-            v_a = str(row_a[col]) if not pd.isna(row_a[col]) else ""
+            if col not in row_n.index or col not in row_a.index:
+                continue
+            
+            val_n = row_n[col]
+            val_a = row_a[col]
+            
+            v_n = "" if pd.isna(val_n) else str(val_n)
+            v_a = "" if pd.isna(val_a) else str(val_a)
             
             if v_n != v_a:
                 teve_mudanca = True
