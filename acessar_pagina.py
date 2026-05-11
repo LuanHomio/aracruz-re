@@ -1,6 +1,13 @@
 """
 Script básico para acessar uma página web usando Selenium
 """
+import sys
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except AttributeError:
+    pass
+
 try:
     import undetected_chromedriver as uc
     UC_AVAILABLE = True
@@ -941,30 +948,67 @@ def acessar_pagina(url):
             status_dropdown = driver.find_element(By.CSS_SELECTOR, "#s2id_Status a.select2-choice")
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", status_dropdown)
             time.sleep(0.5)
-            
+
+            # Tenta click via actions, fallback JS
             try:
                 actions.move_to_element(status_dropdown).pause(0.3).click().perform()
             except Exception:
                 driver.execute_script("arguments[0].click();", status_dropdown)
-            time.sleep(1)
-
-            wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class,'select2-drop-active')]")))
-
-            opcao_all = driver.find_element(By.XPATH, "//li[contains(@class,'select2-result-selectable')][contains(.,'All')]")
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opcao_all)
-            time.sleep(0.3)
-            try:
-                actions.move_to_element(opcao_all).pause(0.3).click().perform()
-            except Exception:
-                driver.execute_script("arguments[0].click();", opcao_all)
             time.sleep(2)
+
+            # Espera o dropdown abrir (select2-drop-active ou select2-dropdown-open)
+            dropdown_aberto = False
+            for _ in range(3):
+                try:
+                    driver.find_element(By.XPATH, "//div[contains(@class,'select2-drop-active') or contains(@class,'select2-dropdown-open')]")
+                    dropdown_aberto = True
+                    break
+                except Exception:
+                    pass
+                # Tenta clicar novamente via JS
+                try:
+                    driver.execute_script("arguments[0].click();", status_dropdown)
+                except Exception:
+                    pass
+                time.sleep(1.5)
+
+            if not dropdown_aberto:
+                # Fallback: usa jQuery select2 API para forcar valor "All" (option value vazia = All)
+                print("  Dropdown nao abriu via click, tentando via JS/jQuery select2...")
+                try:
+                    driver.execute_script(
+                        "var sel = document.getElementById('Status');"
+                        "if (sel) { sel.value = ''; }"
+                        "if (window.jQuery && jQuery('#Status').data('select2')) { jQuery('#Status').trigger('change'); }"
+                        "else if (window.jQuery) { jQuery('#Status').val('').trigger('change'); }"
+                    )
+                    time.sleep(2)
+                    print("  JS select2 executado.")
+                except Exception as js_e:
+                    print(f"  JS fallback falhou: {js_e}")
+                # Tenta submit do formulario de filtro
+                try:
+                    btn_filter = driver.find_element(By.CSS_SELECTOR, "input[type='submit'], button[type='submit'], #btnFilter, #btnSearch")
+                    driver.execute_script("arguments[0].click();", btn_filter)
+                    time.sleep(3)
+                except Exception:
+                    pass
+            else:
+                opcao_all = driver.find_element(By.XPATH, "//li[contains(@class,'select2-result-selectable')][contains(.,'All')]")
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opcao_all)
+                time.sleep(0.3)
+                try:
+                    actions.move_to_element(opcao_all).pause(0.3).click().perform()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", opcao_all)
+                time.sleep(2)
 
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tr td")))
             time.sleep(2)
-            print("✅ Status alterado para 'All' e tabela carregada.")
+            print("Status alterado para 'All' e tabela carregada.")
 
         except Exception as e:
-            print(f"❌ Erro ao ajustar Status para 'All': {e}")
+            print(f"Erro ao ajustar Status para 'All': {e}")
             raise
         
         # Procurar e clicar na imagem do CSV

@@ -7,7 +7,7 @@ from datetime import datetime
 import requests
 import html
 
-N8N_WEBHOOK_URL = "https://api.homio.com.br/webhook/aracruz-re/customers"
+SUPABASE_WEBHOOK_URL = "https://uyaemczdotxlvowytwkt.supabase.co/functions/v1/aracruz-re-customers"
 
 def extrair_telefones(texto):
     if pd.isna(texto) or str(texto).strip() == "":
@@ -32,10 +32,22 @@ def processar_e_salvar_clientes():
     print(f"🧹 Limpando arquivo: {arquivo_sujo}")
     
     linhas_limpas = []
+    in_style_block = False
     with open(arquivo_sujo, 'r', encoding='utf-8') as f:
         for linha in f:
             l = linha.strip()
-            if not l or l.startswith('<') or l.endswith('>'):
+            if not l:
+                continue
+            low = l.lower()
+            if in_style_block:
+                if '</style>' in low:
+                    in_style_block = False
+                continue
+            if low.startswith('<style'):
+                if '</style>' not in low:
+                    in_style_block = True
+                continue
+            if l.startswith('<') or l.endswith('>'):
                 continue
             linhas_limpas.append(linha)
     
@@ -91,8 +103,8 @@ def processar_e_salvar_clientes():
     
     if 'Name' in df.columns and 'Status' in df.columns:
         df['Status'] = df['Status'].astype(str)
-        mask_zzz = df['Name'].astype(str).str.contains('Zzz', na=False)
-        df.loc[mask_zzz, 'Name'] = df.loc[mask_zzz, 'Name'].astype(str).str.replace('Zzz', '', regex=False).str.strip()
+        mask_zzz = df['Name'].astype(str).str.contains('zzz', case=False, na=False)
+        df.loc[mask_zzz, 'Name'] = df.loc[mask_zzz, 'Name'].astype(str).str.replace(r'(?i)zzz', '', regex=True).str.strip()
         df.loc[mask_zzz, 'Status'] = 'Inativo'
     
     nome_base = os.path.basename(arquivo_sujo).replace('.csv', '_LIMPO.xlsx')
@@ -111,7 +123,10 @@ def processar_e_salvar_clientes():
 
 def comparar_ultimas_planilhas():
     caminho_limpos = os.path.join("downloads", "clientes", "*_LIMPO.xlsx")
-    arquivos_limpos = sorted(glob.glob(caminho_limpos), key=os.path.getmtime, reverse=True)
+    arquivos_limpos = sorted(
+        [f for f in glob.glob(caminho_limpos) if not os.path.basename(f).startswith("~$")],
+        key=os.path.getmtime, reverse=True
+    )
     
     if len(arquivos_limpos) < 2:
         print("ℹ️ Apenas uma planilha encontrada. Aguardando a próxima execução para comparar.")
@@ -182,13 +197,21 @@ def comparar_ultimas_planilhas():
     data_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     caminho_diff = os.path.join("downloads", "clientes", f"DIFERENCAS_CLIENTES_{data_str}.xlsx")
     
+    # Adiciona Contact Type = customer para todos os registros enviados ao GHL
+    if not novos.empty:
+        novos = novos.copy()
+        novos['Contact Type'] = 'customer'
+    if not df_ghl_alteracoes.empty:
+        df_ghl_alteracoes = df_ghl_alteracoes.copy()
+        df_ghl_alteracoes['Contact Type'] = 'customer'
+
     with pd.ExcelWriter(caminho_diff) as writer:
         # Aba 1: Novos
         if not novos.empty:
             novos.to_excel(writer, sheet_name='Novos Clientes', index=False)
         else:
             pd.DataFrame([{"Mensagem": "Nenhum cliente novo"}]).to_excel(writer, sheet_name='Novos Clientes', index=False)
-            
+
         # Aba 2: Alterações prontas para n8n (mesmo formato dos Novos)
         if not df_ghl_alteracoes.empty:
             df_ghl_alteracoes.to_excel(writer, sheet_name='Alteracoes n8n', index=False)
@@ -235,7 +258,7 @@ def limpar_arquivos_clientes():
             print(f"⚠️ Erro ao remover diferença antiga {arquivo}: {e}")
 
 def enviar_para_n8n(caminho_arquivo):
-    if not N8N_WEBHOOK_URL or "SUA_URL" in N8N_WEBHOOK_URL:
+    if not SUPABASE_WEBHOOK_URL or "SUA_URL" in SUPABASE_WEBHOOK_URL:
         print("\n⚠️  Webhook do n8n não configurado. O arquivo não foi enviado.")
         return False
     
@@ -249,7 +272,8 @@ def enviar_para_n8n(caminho_arquivo):
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
             }
-            response = requests.post(N8N_WEBHOOK_URL, files=files, timeout=600)
+            headers = {"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5YWVtY3pkb3R4bHZvd3l0d2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyNzMxNjYsImV4cCI6MjA2Mzg0OTE2Nn0.lo9M-sAO7BcYglotMcLLktD8xjVva-OV7NMkMiwpXsU"}
+            response = requests.post(SUPABASE_WEBHOOK_URL, files=files, headers=headers, timeout=600)
         texto = response.text or ""
         if response.status_code == 200 and "Contatos atualizados com sucesso" in texto:
             print("✅ Resposta do n8n indica sucesso para contatos.")
